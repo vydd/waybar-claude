@@ -5,6 +5,7 @@ import json
 import math
 import os
 import sys
+import time
 import urllib.request
 
 CREDENTIALS_PATH = os.path.expanduser("~/.claude/.credentials.json")
@@ -14,7 +15,7 @@ API_URL = "https://api.anthropic.com/api/oauth/usage"
 # Pastel colors
 GREEN = "#77dd77"
 YELLOW = "#fdfd96"
-ORANGE = "#ffb347"
+ORANGE = "#ff8347"
 RED = "#ff6961"
 
 def get_token():
@@ -48,16 +49,18 @@ def get_color(pct):
 
 def make_svg(pct, size=16):
     color = get_color(pct)
+    # Timestamp comment to bust waybar's CSS cache
+    ts = f"<!-- {time.time()} -->\n"
 
     if pct >= 100:
         # Full red circle
-        return f'''<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg">
+        return ts + f'''<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg">
   <circle cx="{size//2}" cy="{size//2}" r="{size//2 - 1}" fill="{color}"/>
 </svg>'''
 
     if pct <= 0:
         # Empty circle (just outline)
-        return f'''<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg">
+        return ts + f'''<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg">
   <circle cx="{size//2}" cy="{size//2}" r="{size//2 - 1}" fill="none" stroke="{GREEN}" stroke-width="1"/>
 </svg>'''
 
@@ -71,7 +74,7 @@ def make_svg(pct, size=16):
     end_y = cy - r * math.cos(angle)
     large_arc = 1 if pct > 50 else 0
 
-    return f'''<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg">
+    return ts + f'''<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg">
   <circle cx="{cx}" cy="{cy}" r="{r}" fill="#444" stroke="#666" stroke-width="0.5"/>
   <path d="M {cx},{cy} L {start_x},{start_y} A {r},{r} 0 {large_arc},1 {end_x},{end_y} Z" fill="{color}"/>
 </svg>'''
