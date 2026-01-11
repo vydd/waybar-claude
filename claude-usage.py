@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import urllib.request
+from datetime import datetime, timezone
 
 CREDENTIALS_PATH = os.path.expanduser("~/.claude/.credentials.json")
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -142,7 +143,9 @@ def main():
 
         tooltip = f"5h: {pct:.0f}%"
         if reset:
-            tooltip += f"\nResets: {reset[:16].replace('T', ' ')}"
+            utc_time = datetime.fromisoformat(reset.replace('Z', '+00:00'))
+            local_time = utc_time.astimezone()
+            tooltip += f"\nResets: {local_time.strftime('%Y-%m-%d %H:%M')}"
 
         output = {
             "text": " ",
