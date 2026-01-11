@@ -4,31 +4,37 @@
 import json
 import math
 import os
+import subprocess
 import sys
-import time
 import urllib.request
 
 CREDENTIALS_PATH = os.path.expanduser("~/.claude/.credentials.json")
-SVG_PATH = "/tmp/claude-usage.svg"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SPRITE_PATH = os.path.join(SCRIPT_DIR, "sprites.png")
 API_URL = "https://api.anthropic.com/api/oauth/usage"
 
-# Pastel colors
+# Colors
 GREEN = "#77dd77"
 YELLOW = "#fdfd96"
 ORANGE = "#ff8347"
 RED = "#ff6961"
+BG_COLOR = "#444"
+STROKE_COLOR = "#666"
+
+ICON_SIZE = 16
+STEP = 5  # percentage steps (0, 5, 10, ... 100)
+
 
 def get_token():
     with open(CREDENTIALS_PATH) as f:
         creds = json.load(f)
-    # Try common key names
     for key in ("accessToken", "access_token", "token"):
         if key in creds:
             return creds[key]
-    # Maybe it's nested
     if "claudeAiOauth" in creds:
         return creds["claudeAiOauth"].get("accessToken")
     raise KeyError(f"No token found in {CREDENTIALS_PATH}")
+
 
 def fetch_usage(token):
     req = urllib.request.Request(API_URL, headers={
@@ -37,6 +43,7 @@ def fetch_usage(token):
     })
     with urllib.request.urlopen(req, timeout=10) as resp:
         return json.load(resp)
+
 
 def get_color(pct):
     if pct >= 100:
@@ -47,37 +54,81 @@ def get_color(pct):
         return YELLOW
     return GREEN
 
-def make_svg(pct, size=16):
+
+def make_svg(pct, size=ICON_SIZE):
+    """Generate SVG for a given percentage."""
     color = get_color(pct)
-    # Timestamp comment to bust waybar's CSS cache
-    ts = f"<!-- {time.time()} -->\n"
+    cx, cy = size / 2, size / 2
+    r = size / 2 - 1
 
     if pct >= 100:
-        # Full red circle
-        return ts + f'''<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="{size//2}" cy="{size//2}" r="{size//2 - 1}" fill="{color}"/>
+        return f'''<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="{cx}" cy="{cy}" r="{r}" fill="{color}"/>
 </svg>'''
 
     if pct <= 0:
-        # Empty circle (just outline)
-        return ts + f'''<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="{size//2}" cy="{size//2}" r="{size//2 - 1}" fill="none" stroke="{GREEN}" stroke-width="1"/>
+        return f'''<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{GREEN}" stroke-width="1"/>
 </svg>'''
 
-    # Pie slice
-    cx, cy = size // 2, size // 2
-    r = size // 2 - 1
     angle = (pct / 100) * 2 * math.pi
-    # Start at top (12 o'clock), go clockwise
     start_x, start_y = cx, cy - r
     end_x = cx + r * math.sin(angle)
     end_y = cy - r * math.cos(angle)
     large_arc = 1 if pct > 50 else 0
 
-    return ts + f'''<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="{cx}" cy="{cy}" r="{r}" fill="#444" stroke="#666" stroke-width="0.5"/>
+    return f'''<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="{cx}" cy="{cy}" r="{r}" fill="{BG_COLOR}" stroke="{STROKE_COLOR}" stroke-width="0.5"/>
   <path d="M {cx},{cy} L {start_x},{start_y} A {r},{r} 0 {large_arc},1 {end_x},{end_y} Z" fill="{color}"/>
 </svg>'''
+
+
+def generate_sprites():
+    """Generate sprite sheet PNG with icons for 0%, 5%, 10%, ... 100%."""
+    import tempfile
+
+    percentages = list(range(0, 101, STEP))
+    num_icons = len(percentages)
+
+    # Create individual SVG files
+    svg_files = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for i, pct in enumerate(percentages):
+            svg_path = os.path.join(tmpdir, f"icon_{i:02d}.svg")
+            with open(svg_path, "w") as f:
+                f.write(make_svg(pct))
+            svg_files.append(svg_path)
+
+        # Use ImageMagick to combine into horizontal sprite sheet with transparency
+        cmd = ["magick", "-background", "none"] + svg_files + ["+append", SPRITE_PATH]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+        except FileNotFoundError:
+            # Try 'convert' for older ImageMagick
+            cmd = ["convert", "-background", "none"] + svg_files + ["+append", SPRITE_PATH]
+            subprocess.run(cmd, check=True, capture_output=True)
+
+    print(f"Generated sprite sheet: {SPRITE_PATH}")
+    print(f"  {num_icons} icons at {ICON_SIZE}x{ICON_SIZE}px each")
+    print(f"  Total size: {num_icons * ICON_SIZE}x{ICON_SIZE}px")
+
+
+def generate_css():
+    """Print CSS rules for the sprite sheet."""
+    percentages = list(range(0, 101, STEP))
+
+    print(f"""#custom-claude {{
+    background-image: url("{SPRITE_PATH}");
+    background-repeat: no-repeat;
+    background-size: {len(percentages) * ICON_SIZE}px {ICON_SIZE}px;
+    min-width: {ICON_SIZE + 4}px;
+    min-height: {ICON_SIZE}px;
+}}
+""")
+    for i, pct in enumerate(percentages):
+        offset = -i * ICON_SIZE
+        print(f"#custom-claude.p{pct} {{ background-position: {offset}px 0; }}")
+
 
 def main():
     try:
@@ -86,29 +137,17 @@ def main():
         pct = usage.get("five_hour", {}).get("utilization", 0)
         reset = usage.get("five_hour", {}).get("resets_at", "")
 
-        svg = make_svg(pct)
-        with open(SVG_PATH, "w") as f:
-            f.write(svg)
+        # Round to nearest step for sprite selection
+        sprite_pct = min(100, max(0, round(pct / STEP) * STEP))
 
-        # Waybar JSON output
         tooltip = f"5h: {pct:.0f}%"
         if reset:
             tooltip += f"\nResets: {reset[:16].replace('T', ' ')}"
 
-        # Determine class for CSS coloring
-        if pct >= 100:
-            css_class = "red"
-        elif pct >= 85:
-            css_class = "orange"
-        elif pct >= 50:
-            css_class = "yellow"
-        else:
-            css_class = "green"
-
         output = {
-            "text": " ",  # non-breaking space so module renders
+            "text": " ",
             "tooltip": tooltip,
-            "class": css_class,
+            "class": f"p{sprite_pct}",
             "percentage": pct,
         }
         print(json.dumps(output))
@@ -117,5 +156,20 @@ def main():
         print(json.dumps({"text": "?", "tooltip": str(e)}))
         sys.exit(0)
 
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "--generate-sprites":
+            generate_sprites()
+        elif sys.argv[1] == "--generate-css":
+            generate_css()
+        elif sys.argv[1] == "--help":
+            print("Usage: claude-usage.py [--generate-sprites | --generate-css | --help]")
+            print("  (no args)          Fetch usage and output waybar JSON")
+            print("  --generate-sprites Generate sprite sheet PNG")
+            print("  --generate-css     Print CSS rules for sprite sheet")
+        else:
+            print(f"Unknown option: {sys.argv[1]}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        main()
